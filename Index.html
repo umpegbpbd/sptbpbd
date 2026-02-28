@@ -1,0 +1,208 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upload SPT Tahunan</title>
+  <style>
+    body{font-family:Arial;max-width:900px;margin:0 auto;padding:16px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}
+    label{display:block;margin:10px 0 6px;font-weight:700}
+    select,input,button{width:100%;padding:10px;border-radius:10px;border:1px solid #ccc}
+    button{border:0;cursor:pointer;margin-top:10px;background:#111;color:#fff}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .muted{color:#666;font-size:12px;margin-top:6px}
+    .hidden{display:none}
+
+    /* NOTIFIKASI BESAR */
+    #toastOverlay{
+      position:fixed; inset:0;
+      background:rgba(0,0,0,.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      z-index:9999;
+      padding:20px;
+    }
+    #toastBox{
+      background:#fff;
+      border-radius:16px;
+      padding:22px 18px;
+      max-width:520px;
+      width:100%;
+      text-align:center;
+      box-shadow:0 12px 30px rgba(0,0,0,.25);
+    }
+    #toastTitle{
+      font-size:28px;
+      font-weight:800;
+      margin:0 0 10px;
+      letter-spacing:.5px;
+    }
+    #toastMsg{
+      font-size:16px;
+      margin:0;
+      line-height:1.4;
+    }
+  </style>
+</head>
+<body>
+  <h2>Input SPT Tahunan</h2>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Nama</label>
+        <select id="nama">
+          <option value="">— Pilih Nama —</option>
+        </select>
+      </div>
+      <div>
+        <label>Upload SPT (JPG/PNG)</label>
+        <input id="file" type="file" accept=".jpg,.jpeg,.png" />
+        <div class="muted">File disimpan ke Drive.</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>NIP/NIPPPK</label>
+        <input id="nipppk" readonly />
+      </div>
+      <div>
+        <label>Jabatan</label>
+        <input id="jabatan" readonly />
+      </div>
+    </div>
+
+    <button id="btnKirim" onclick="kirim()">Kirim</button>
+    <div id="status" class="muted"></div>
+  </div>
+
+  <!-- ADMIN: hanya tampil jika mode=admin -->
+  <div id="adminCard" class="card hidden">
+    <h3>Admin</h3>
+    <label>PIN Admin</label>
+    <input id="pin" type="password" placeholder="Masukkan PIN admin" />
+    <button onclick="generate()">Generate Word (.docx) + Gambar</button>
+    <div id="adminStatus" class="muted"></div>
+    <div class="muted">Buka link dengan <b>?mode=admin</b> agar menu ini muncul.</div>
+  </div>
+
+  <!-- OVERLAY NOTIFIKASI -->
+  <div id="toastOverlay" aria-live="polite" aria-atomic="true">
+    <div id="toastBox">
+      <p id="toastTitle">TERIMAKASIH</p>
+      <p id="toastMsg">sudah membantu Nilai Kinerja BPBD, SALAM SATU NYALI WANI</p>
+    </div>
+  </div>
+
+<script>
+  const MODE = "<?= MODE ?>";
+  let pegawai = [];
+
+  function setStatus(id, msg){ document.getElementById(id).textContent = msg; }
+
+  // tampilkan admin hanya kalau mode=admin
+  if ((MODE || "").toLowerCase() === "admin") {
+    document.getElementById("adminCard").classList.remove("hidden");
+  }
+
+  function resetForm() {
+    document.getElementById("nama").value = "";
+    document.getElementById("nipppk").value = "";
+    document.getElementById("jabatan").value = "";
+    document.getElementById("file").value = "";
+    setStatus("status", "");
+  }
+
+  function showBigThanks() {
+    const overlay = document.getElementById("toastOverlay");
+    overlay.style.display = "flex";
+    setTimeout(() => { overlay.style.display = "none"; }, 2000);
+  }
+
+  // load pegawai
+  google.script.run.withSuccessHandler((data)=>{
+    pegawai = data || [];
+    const sel = document.getElementById("nama");
+    pegawai.sort((a,b)=>a.nama.localeCompare(b.nama,'id')).forEach(p=>{
+      const opt = document.createElement("option");
+      opt.value = p.nama;
+      opt.textContent = p.nama;
+      sel.appendChild(opt);
+    });
+  }).withFailureHandler((err)=>{
+    setStatus("status","Gagal memuat data pegawai: " + err.message);
+  }).getPegawai();
+
+  // autofill nipppk & jabatan
+  document.getElementById("nama").addEventListener("change", (e)=>{
+    const p = pegawai.find(x=>x.nama===e.target.value);
+    document.getElementById("nipppk").value = p ? p.nipppk : "";
+    document.getElementById("jabatan").value = p ? p.jabatan : "";
+  });
+
+  async function kirim(){
+    const btn = document.getElementById("btnKirim");
+    btn.disabled = true;
+
+    const nama = document.getElementById("nama").value;
+    const nipppk = document.getElementById("nipppk").value;
+    const jabatan = document.getElementById("jabatan").value;
+    const file = document.getElementById("file").files[0];
+
+    if(!nama) { btn.disabled = false; return setStatus("status","Pilih nama dulu."); }
+    if(!file) { btn.disabled = false; return setStatus("status","Upload file SPT dulu."); }
+
+    setStatus("status","Mengupload...");
+
+    try {
+      const base64 = await fileToBase64(file);
+
+      google.script.run.withSuccessHandler((res)=>{
+        // sukses
+        setStatus("status","Berhasil disimpan.");
+
+        // notif besar 2 detik
+        showBigThanks();
+
+        // reset form seperti semula
+        resetForm();
+
+        btn.disabled = false;
+      }).withFailureHandler((err)=>{
+        setStatus("status","Gagal: " + err.message);
+        btn.disabled = false;
+      }).submitInput({ nama, nipppk, jabatan, fileName: file.name, base64 });
+
+    } catch (e) {
+      setStatus("status","Gagal membaca file: " + e.message);
+      btn.disabled = false;
+    }
+  }
+
+  function generate(){
+    const pin = document.getElementById("pin").value;
+    if(!pin) return setStatus("adminStatus","Masukkan PIN admin.");
+
+    setStatus("adminStatus","Membuat Word (.docx)...");
+    google.script.run.withSuccessHandler((res)=>{
+      setStatus("adminStatus","Selesai! Link DOCX: " + res.docxLink);
+    }).withFailureHandler((err)=>{
+      setStatus("adminStatus","Gagal: " + err.message);
+    }).generateWordDocx(pin);
+  }
+
+  function fileToBase64(file){
+    return new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+</script>
+</body>
+</html>
